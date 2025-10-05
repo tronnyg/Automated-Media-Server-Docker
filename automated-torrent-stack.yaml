@@ -4,22 +4,23 @@ services:
     container_name: gluetun-vpn
     cap_add:
       - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
     volumes:
-      - gluetun-config:/gluetun # Persistent configuration storage for Gluetun
+      - gluetun-config:/gluetun 
     environment:
-      - VPN_SERVICE_PROVIDER=nordvpn # VPN provider
-      - VPN_TYPE=wireguard # Use WireGuard or OpenVPN
-      - WIREGUARD_PRIVATE_KEY=${WIREGUARD_PRIVATE_KEY} # Your WireGuard private key (set in .env)
-      - WIREGUARD_ADDRESS=${WIREGUARD_ADDRESS} # VPN address (set in .env)
-      - SERVER_CITIES=${SERVER_CITIES} # VPN server city or country (set in .env)
-      - PUID=${PUID} # User ID (set in .env)
-      - PGID=${PGID} # Group ID (set in .env)
-      - TZ=${TZ} # Timezone (set in .env)
-      - UPDATER_PERIOD=24h # Automatically update every 24 hours
+      - VPN_SERVICE_PROVIDER=airvpn
+      - VPN_TYPE=wireguard
+      - SERVER_COUNTRIES=${SERVER_COUNTRIES}
+      - WIREGUARD_PRIVATE_KEY=${WIREGUARD_PRIVATE_KEY}
+      - WIREGUARD_PRESHARED_KEY=${WIREGUARD_PRESHARED_KEY}
+      - WIREGUARD_ADDRESSES=${WIREGUARD_ADDRESSES}
+      - FIREWALL_VPN_INPUT_PORTS=${FIREWALL_VPN_INPUT_PORTS}
     ports:
-      - 51820:51820/udp
+      - 51820:51820/udp   # VPN Wireguard port
+      - 8080:8080         #Qbittorrent WebUi
     sysctls:
-      - net.ipv4.ip_forward=1 # Enable IP forwarding for routing
+      - net.ipv4.ip_forward=1
     restart: unless-stopped
     networks:
       - vpn_network
@@ -27,19 +28,15 @@ services:
   qbittorrent:
     image: linuxserver/qbittorrent
     container_name: qbittorrent
+    network_mode: service:gluetun-vpn
     environment:
-      - PUID=${PUID} # User ID (set in .env)
-      - PGID=${PGID} # Group ID (set in .env)
-      - TZ=${TZ} # Timezone (set in .env)
+      - PUID=${PUID} 
+      - PGID=${PGID} 
+      - TZ=${TZ} 
       - WEBUI_PORT=8080
     volumes:
-      - qbittorrent-config:/config # Configuration storage for qBittorrent
-    ports:
-      - 8080:8080
-      - 6881:6881
-      - 6881:6881/udp
-    networks:
-      - vpn_network
+      - qbittorrent-config:/config 
+      - /mnt/downloads:/downloads
     depends_on:
       - gluetun-vpn
     restart: unless-stopped
@@ -48,15 +45,17 @@ services:
     image: linuxserver/sonarr
     container_name: sonarr
     environment:
-      - PUID=${PUID} # User ID (set in .env)
-      - PGID=${PGID} # Group ID (set in .env)
-      - TZ=${TZ} # Timezone (set in .env)
+      - PUID=${PUID} 
+      - PGID=${PGID} 
+      - TZ=${TZ} 
     volumes:
-      - sonarr-config:/config # Configuration storage for Sonarr
-    ports:
-      - 8989:8989
+      - sonarr-config:/config 
+      - /mnt/storage/media/tv/:/mnt/storage/media/tv/
+      - /mnt/downloads/complete/tv/:/downloads/complete/tv/
     networks:
       - vpn_network
+    ports:
+      - 8989:8989
     depends_on:
       - gluetun-vpn
     restart: unless-stopped
@@ -65,28 +64,30 @@ services:
     image: linuxserver/radarr
     container_name: radarr
     environment:
-      - PUID=${PUID} # User ID (set in .env)
-      - PGID=${PGID} # Group ID (set in .env)
-      - TZ=${TZ} # Timezone (set in .env)
+      - PUID=${PUID}
+      - PGID=${PGID} 
+      - TZ=${TZ} 
     volumes:
-      - radarr-config:/config # Configuration storage for Radarr
-    ports:
-      - 7878:7878
+      - radarr-config:/config 
+      - /mnt/storage/media/movies:/mnt/storage/media/movies
+      - /mnt/downloads/complete/movies:/downloads/complete/movies
     networks:
       - vpn_network
+    ports:
+      - 7878:7878
     depends_on:
       - gluetun-vpn
     restart: unless-stopped
 
   flaresolverr:
-    image: ghcr.io/flaresolverr/flaresolverr:latest
+    image: flaresolverr/flaresolverr:latest
     container_name: flaresolverr
     environment:
       - LOG_LEVEL=info
-    ports:
-      - 8191:8191
     networks:
       - vpn_network
+    ports:
+      - 8191:8191
     depends_on:
       - gluetun-vpn
     restart: unless-stopped
@@ -95,26 +96,82 @@ services:
     image: linuxserver/prowlarr
     container_name: prowlarr
     environment:
-      - PUID=${PUID} # User ID (set in .env)
-      - PGID=${PGID} # Group ID (set in .env)
-      - TZ=${TZ} # Timezone (set in .env)
+      - PUID=${PUID} 
+      - PGID=${PGID} 
+      - TZ=${TZ} 
     volumes:
-      - prowlarr-config:/config # Configuration storage for Prowlarr
-    ports:
-      - 9696:9696
+      - prowlarr-config:/config 
     networks:
       - vpn_network
+    ports:
+      - 9696:9696
+    depends_on:
+      - gluetun-vpn
+    restart: unless-stopped
+
+  huntarr:
+    image: huntarr/huntarr:latest
+    container_name: huntarr
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    volumes:
+      - huntarr-config:/config
+      - /mnt/storage/media/:/mnt/storage/media/
+    networks:
+      - vpn_network
+    ports:
+      - 9705:9705
+    depends_on:
+      - gluetun-vpn
+    restart: unless-stopped
+
+  profilarr:
+    image: santiagosayshey/profilarr:latest
+    container_name: profilarr
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    volumes:
+      - profilarr-config:/config
+    networks:
+      - vpn_network
+    ports:
+      - 6868:6868
+    depends_on:
+      - gluetun-vpn
+    restart: unless-stopped
+
+  bazarr:
+    image: linuxserver/bazarr
+    container_name: bazarr
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    volumes:
+      - bazarr-config:/config
+      - /mnt/storage/media/:/mnt/storage/media/
+    networks:
+      - vpn_network
+    ports:
+      - 6767:6767
     depends_on:
       - gluetun-vpn
     restart: unless-stopped
 
 networks:
   vpn_network:
-    driver: bridge # Use bridge networking to isolate the VPN network
+    driver: bridge 
 
 volumes:
-  gluetun-config: # Persistent storage for Gluetun configuration
-  qbittorrent-config: # Persistent storage for qBittorrent configuration
-  sonarr-config: # Persistent storage for Sonarr configuration
-  radarr-config: # Persistent storage for Radarr configuration
-  prowlarr-config: # Persistent storage for Prowlarr configuration
+  gluetun-config: 
+  qbittorrent-config: 
+  sonarr-config:
+  radarr-config: 
+  prowlarr-config: 
+  huntarr-config:
+  profilarr-config:
+  bazarr-config:
